@@ -165,7 +165,7 @@
             <!-- Color Info Box -->
             <div class="flex justify-center mb-8">
                  <div class="info-box text-center">
-                    <p class="text-sm text-gray-500">Hover over an image for pixel data</p>
+                    <p class="text-sm text-gray-500">Click image to select skin tone, hover for pixel data</p>
                     <div id="colorInfo" class="font-mono font-semibold text-lg"></div>
                 </div>
             </div>
@@ -247,11 +247,10 @@
                 }
             });
 
-            // Mouse hover handlers
-            [originalCanvas, skinToneCanvas].forEach(canvas => {
-                canvas.addEventListener('mousemove', handleMouseMove);
-                canvas.addEventListener('mouseleave', handleMouseLeave);
-            });
+            // Mouse and click handlers
+            originalCanvas.addEventListener('mousemove', handleMouseMove);
+            originalCanvas.addEventListener('mouseleave', handleMouseLeave);
+            originalCanvas.addEventListener('click', handleCanvasClick);
             
             // Slider controls
             [exposureSlider, lumaCenterSlider, lumaWidthSlider, hueCenterSlider, hueWidthSlider].forEach(slider => {
@@ -411,7 +410,40 @@
                 drawLuminanceWaveform(adjustedImageData, null);
                 drawVectorscope(adjustedImageData, null);
             }
-            colorInfo.innerHTML = '';
+            colorInfo.innerHTML = 'Hover over an image for pixel data';
+        }
+
+        function handleCanvasClick(e) {
+            if (!adjustedImageData) return;
+            const rect = e.target.getBoundingClientRect();
+            const scaleX = e.target.width / rect.width;
+            const scaleY = e.target.height / rect.height;
+            const x = Math.floor((e.clientX - rect.left) * scaleX);
+            const y = Math.floor((e.clientY - rect.top) * scaleY);
+
+            if (x < 0 || x >= originalCanvas.width || y < 0 || y >= originalCanvas.height) {
+                return;
+            }
+
+            const pixelData = originalCtx.getImageData(x, y, 1, 1).data;
+            const r = pixelData[0];
+            const g = pixelData[1];
+            const b = pixelData[2];
+
+            const luma_ire = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 2.55;
+            const hsl = rgbToHsl(r, g, b);
+            const hue_degrees = hsl[0] * 360;
+
+            // Set the sliders to the clicked pixel's values
+            lumaCenterSlider.value = Math.round(luma_ire);
+            hueCenterSlider.value = Math.round(hue_degrees);
+            
+            // Set widths based on user's screenshot for a good initial selection
+            lumaWidthSlider.value = 30;
+            hueWidthSlider.value = 18;
+
+            // Update UI and redraw everything
+            handleControlsChange();
         }
 
         // --- Core Functions ---
