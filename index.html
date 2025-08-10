@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skin Tone Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/geotiff@2.0.7/dist-browser/geotiff.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #FDFAF7;
+            color: #030303;
+        }
+        .accent-color {
+            color: #D63129;
+        }
+        .accent-bg {
+            background-color: #D63129;
+        }
+        canvas {
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        #originalCanvas, #skinToneCanvas {
+             cursor: crosshair;
+        }
+        .container {
+            max-width: 1600px;
+            margin: auto;
+        }
+        .upload-label {
+            border: 2px dashed #D63129;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 0.5rem;
+            transition: background-color 0.2s;
+        }
+        .upload-label:hover {
+            background-color: #fde8e7;
+        }
+        .info-box {
+            background-color: #fff;
+            border: 1px solid #e5e7eb;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            min-height: 60px;
+        }
+        .waveform-container {
+            position: relative;
+        }
+        .waveform-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #ddd;
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #D63129;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #D63129;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        .drag-over {
+            background-color: #fde8e7 !important;
+            transition: background-color 0.2s;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="container">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold">Skin Tone <span class="accent-color">Analyzer</span></h1>
+            <p class="text-lg mt-2 text-gray-600">Upload an image to isolate skin tones and find the perfect exposure.</p>
+        </header>
+
+        <!-- Image Upload -->
+        <div id="uploadContainer" class="mb-8">
+            <label for="imageUpload" class="upload-label block">
+                <span class="font-semibold accent-color">Click to upload</span>
+                <p class="text-sm text-gray-500 mt-1">or drag and drop an image</p>
+            </label>
+            <input type="file" id="imageUpload" class="hidden" accept="image/*,image/tiff">
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="mainContent" class="hidden">
+
+             <!-- Controls -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 bg-white p-6 rounded-lg shadow-sm border">
+                <div>
+                    <label for="exposureSlider" class="block font-medium">Exposure Offset: <span id="exposureValue" class="font-bold accent-color">0.00</span> stops</label>
+                    <input type="range" id="exposureSlider" min="-2" max="2" value="0" step="0.01" class="mt-2">
+                </div>
+                <div>
+                    <label for="lumaCenterSlider" class="block font-medium">Skin Luma Center: <span id="lumaCenterValue" class="font-bold">50</span> IRE</label>
+                    <input type="range" id="lumaCenterSlider" min="0" max="100" value="50" step="1" class="mt-2">
+                </div>
+                 <div>
+                    <label for="lumaWidthSlider" class="block font-medium">Skin Luma Width: <span id="lumaWidthValue" class="font-bold">20</span> IRE</label>
+                    <input type="range" id="lumaWidthSlider" min="1" max="50" value="20" step="1" class="mt-2">
+                </div>
+                 <div>
+                    <label for="hueCenterSlider" class="block font-medium">Skin Hue Center: <span id="hueCenterValue" class="font-bold">25</span>°</label>
+                    <input type="range" id="hueCenterSlider" min="0" max="60" value="25" step="1" class="mt-2">
+                </div>
+                 <div>
+                    <label for="hueWidthSlider" class="block font-medium">Skin Hue Width: <span id="hueWidthValue" class="font-bold">15</span>°</label>
+                    <input type="range" id="hueWidthSlider" min="1" max="45" value="15" step="1" class="mt-2">
+                </div>
+                 <div class="flex items-end">
+                    <button id="resetButton" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded">
+                        Reset Sliders
+                    </button>
+                </div>
+            </div>
+
+
+            <!-- Image and Info Display -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <div id="adjustedImageContainer" class="rounded-lg p-2">
+                    <h2 class="text-xl font-semibold mb-2 text-center">Adjusted Image</h2>
+                    <canvas id="originalCanvas"></canvas>
+                </div>
+                <div>
+                    <h2 class="text-xl font-semibold mb-2 text-center">Skin Tone Isolation</h2>
+                    <canvas id="skinToneCanvas"></canvas>
+                </div>
+            </div>
+            
+            <!-- Color Info Box -->
+            <div class="flex justify-center mb-8">
+                 <div class="info-box text-center">
+                    <p class="text-sm text-gray-500">Hover over an image for pixel data</p>
+                    <div id="colorInfo" class="font-mono font-semibold text-lg"></div>
+                </div>
+            </div>
+
+            <!-- Waveforms Display -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                    <h2 class="text-xl font-semibold mb-2 text-center">Luminance (IRE) Waveform</h2>
+                    <div class="waveform-container">
+                        <canvas id="luminanceWaveformCanvas"></canvas>
+                        <canvas id="waveformGridCanvas" class="waveform-overlay"></canvas>
+                    </div>
+                </div>
+                <div>
+                    <h2 class="text-xl font-semibold mb-2 text-center">Vectorscope (Skin Tones Only)</h2>
+                    <div class="waveform-container">
+                        <canvas id="vectorscopeCanvas"></canvas>
+                        <canvas id="vectorscopeGridCanvas" class="waveform-overlay"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const imageUpload = document.getElementById('imageUpload');
+        const uploadContainer = document.getElementById('uploadContainer');
+        const mainContent = document.getElementById('mainContent');
+        
+        const originalCanvas = document.getElementById('originalCanvas');
+        const skinToneCanvas = document.getElementById('skinToneCanvas');
+        const luminanceWaveformCanvas = document.getElementById('luminanceWaveformCanvas');
+        const waveformGridCanvas = document.getElementById('waveformGridCanvas');
+        const vectorscopeCanvas = document.getElementById('vectorscopeCanvas');
+        const vectorscopeGridCanvas = document.getElementById('vectorscopeGridCanvas');
+        const colorInfo = document.getElementById('colorInfo');
+        const adjustedImageContainer = document.getElementById('adjustedImageContainer');
+
+
+        const originalCtx = originalCanvas.getContext('2d');
+        const skinToneCtx = skinToneCanvas.getContext('2d');
+        const luminanceCtx = luminanceWaveformCanvas.getContext('2d');
+        const gridCtx = waveformGridCanvas.getContext('2d');
+        const vectorscopeCtx = vectorscopeCanvas.getContext('2d');
+        const vGridCtx = vectorscopeGridCanvas.getContext('2d');
+
+        // --- Controls ---
+        const exposureSlider = document.getElementById('exposureSlider');
+        const lumaCenterSlider = document.getElementById('lumaCenterSlider');
+        const lumaWidthSlider = document.getElementById('lumaWidthSlider');
+        const hueCenterSlider = document.getElementById('hueCenterSlider');
+        const hueWidthSlider = document.getElementById('hueWidthSlider');
+        const resetButton = document.getElementById('resetButton');
+
+        const exposureValue = document.getElementById('exposureValue');
+        const lumaCenterValue = document.getElementById('lumaCenterValue');
+        const lumaWidthValue = document.getElementById('lumaWidthValue');
+        const hueCenterValue = document.getElementById('hueCenterValue');
+        const hueWidthValue = document.getElementById('hueWidthValue');
+
+        // --- State ---
+        let trueOriginalImageData = null; // Unaltered data
+        let adjustedImageData = null; // Data with exposure offset
+        let currentFileName = 'Grade';
+
+        // --- Initialization ---
+        function initialize() {
+            // Initial upload handler
+            imageUpload.addEventListener('change', handleImageUpload);
+            uploadContainer.addEventListener('dragover', (e) => { e.preventDefault(); uploadContainer.classList.add('bg-gray-100'); });
+            uploadContainer.addEventListener('dragleave', () => { uploadContainer.classList.remove('bg-gray-100'); });
+            uploadContainer.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadContainer.classList.remove('bg-gray-100');
+                if (e.dataTransfer.files.length > 0) {
+                    imageUpload.files = e.dataTransfer.files;
+                    handleImageUpload({ target: e.dataTransfer });
+                }
+            });
+
+            // Mouse hover handlers
+            [originalCanvas, skinToneCanvas].forEach(canvas => {
+                canvas.addEventListener('mousemove', handleMouseMove);
+                canvas.addEventListener('mouseleave', handleMouseLeave);
+            });
+            
+            // Slider controls
+            [exposureSlider, lumaCenterSlider, lumaWidthSlider, hueCenterSlider, hueWidthSlider].forEach(slider => {
+                slider.addEventListener('input', handleControlsChange);
+            });
+            resetButton.addEventListener('click', resetSliders);
+
+            // Drag and drop to replace image
+            adjustedImageContainer.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                adjustedImageContainer.classList.add('drag-over');
+            });
+
+            adjustedImageContainer.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                adjustedImageContainer.classList.remove('drag-over');
+            });
+
+            adjustedImageContainer.addEventListener('drop', (e) => {
+                e.preventDefault();
+                adjustedImageContainer.classList.remove('drag-over');
+                if (e.dataTransfer.files.length > 0) {
+                    handleImageUpload({ target: e.dataTransfer });
+                }
+            });
+        }
+
+        // --- Event Handlers ---
+        async function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            currentFileName = file.name.split('.').slice(0, -1).join('.');
+
+
+            const showUI = (img) => {
+                uploadContainer.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+                processImage(img);
+            };
+
+            const fileName = file.name.toLowerCase();
+            if (fileName.endsWith('.tif') || fileName.endsWith('.tiff')) {
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    try {
+                        const arrayBuffer = e.target.result;
+                        const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
+                        const image = await tiff.getImage();
+                        const data = await image.readRasters();
+                        const [width, height] = [image.getWidth(), image.getHeight()];
+                        
+                        const tempCanvas = document.createElement('canvas');
+                        tempCanvas.width = width;
+                        tempCanvas.height = height;
+                        const tempCtx = tempCanvas.getContext('2d');
+                        const imageData = tempCtx.createImageData(width, height);
+                        const pixelData = imageData.data;
+                        
+                        const red = data[0];
+                        const green = data[1];
+                        const blue = data[2];
+                        const alpha = data.length > 3 ? data[3] : null;
+
+                        const is16bit = red instanceof Uint16Array;
+                        const maxVal = is16bit ? 65535 : 255;
+
+                        for (let i = 0; i < width * height; i++) {
+                            pixelData[i * 4] = (red[i] / maxVal) * 255;
+                            pixelData[i * 4 + 1] = (green[i] / maxVal) * 255;
+                            pixelData[i * 4 + 2] = (blue[i] / maxVal) * 255;
+                            pixelData[i * 4 + 3] = alpha ? (alpha[i] / maxVal) * 255 : 255;
+                        }
+                        
+                        tempCtx.putImageData(imageData, 0, 0);
+
+                        const img = new Image();
+                        img.onload = () => showUI(img);
+                        img.onerror = () => alert('Could not convert TIFF data to a displayable image.');
+                        img.src = tempCanvas.toDataURL();
+
+                    } catch(err) {
+                        alert('Error parsing TIFF file. It may be corrupt or in an unsupported format (e.g., CMYK).');
+                        console.error(err);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => showUI(img);
+                    img.onerror = () => alert('Could not load the image file.');
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function handleControlsChange() {
+            exposureValue.textContent = parseFloat(exposureSlider.value).toFixed(2);
+            lumaCenterValue.textContent = lumaCenterSlider.value;
+            lumaWidthValue.textContent = lumaWidthSlider.value;
+            hueCenterValue.textContent = hueCenterSlider.value;
+            hueWidthValue.textContent = hueWidthSlider.value;
+            
+            if (trueOriginalImageData) {
+                applyExposureAndRedraw();
+            }
+        }
+
+        function resetSliders() {
+            exposureSlider.value = 0;
+            lumaCenterSlider.value = 50;
+            lumaWidthSlider.value = 20;
+            hueCenterSlider.value = 25;
+            hueWidthSlider.value = 15;
+            handleControlsChange();
+        }
+        
+        function handleMouseMove(e) {
+            if (!adjustedImageData) return;
+            const rect = e.target.getBoundingClientRect();
+            const scaleX = e.target.width / rect.width;
+            const scaleY = e.target.height / rect.height;
+            const x = Math.floor((e.clientX - rect.left) * scaleX);
+            const y = Math.floor((e.clientY - rect.top) * scaleY);
+            
+            if (x < 0 || x >= originalCanvas.width || y < 0 || y >= originalCanvas.height) {
+                handleMouseLeave();
+                return;
+            }
+
+            originalCtx.putImageData(adjustedImageData, 0, 0);
+            drawSkinToneImage(adjustedImageData);
+            
+            const pixelData = originalCtx.getImageData(x, y, 1, 1).data;
+            colorInfo.innerHTML = `RGB: ${pixelData[0]}, ${pixelData[1]}, ${pixelData[2]}`;
+            
+            drawLuminanceWaveform(adjustedImageData, x);
+            drawVectorscope(adjustedImageData, {r: pixelData[0], g: pixelData[1], b: pixelData[2]});
+
+            [originalCtx, skinToneCtx].forEach(ctx => {
+                ctx.beginPath();
+                ctx.arc(x, y, 30, 0, 2 * Math.PI);
+                ctx.fillStyle = 'rgba(214, 49, 41, 0.4)';
+                ctx.fill();
+                ctx.strokeStyle = '#D63129';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            });
+        }
+
+        function handleMouseLeave() {
+            if (adjustedImageData) {
+                originalCtx.putImageData(adjustedImageData, 0, 0);
+                drawSkinToneImage(adjustedImageData);
+                drawLuminanceWaveform(adjustedImageData, null);
+                drawVectorscope(adjustedImageData, null);
+            }
+            colorInfo.innerHTML = '';
+        }
+
+        // --- Core Functions ---
+        function processImage(img) {
+            const aspectRatio = img.width / img.height;
+            const displayWidth = Math.min(img.width, 800);
+            const displayHeight = displayWidth / aspectRatio;
+
+            const allCanvases = [originalCanvas, skinToneCanvas, luminanceWaveformCanvas, waveformGridCanvas, vectorscopeCanvas, vectorscopeGridCanvas];
+            allCanvases.forEach(canvas => {
+                canvas.width = displayWidth;
+                canvas.height = displayHeight;
+                const parentWrapper = canvas.closest('.waveform-container, #adjustedImageContainer, .grid > div > div');
+                 if (parentWrapper) {
+                    parentWrapper.style.aspectRatio = `${displayWidth} / ${displayHeight}`;
+                }
+            });
+            
+            resetSliders();
+
+            const tempCtx = document.createElement('canvas').getContext('2d');
+            tempCtx.canvas.width = displayWidth;
+            tempCtx.canvas.height = displayHeight;
+            tempCtx.drawImage(img, 0, 0, displayWidth, displayHeight);
+            trueOriginalImageData = tempCtx.getImageData(0, 0, displayWidth, displayHeight);
+
+            applyExposureAndRedraw();
+        }
+
+        function applyExposureAndRedraw() {
+            const exposureOffset = parseFloat(exposureSlider.value);
+            const multiplier = Math.pow(2, exposureOffset);
+
+            const originalData = trueOriginalImageData.data;
+            const newData = new Uint8ClampedArray(originalData.length);
+
+            for (let i = 0; i < originalData.length; i += 4) {
+                newData[i] = originalData[i] * multiplier;
+                newData[i + 1] = originalData[i + 1] * multiplier;
+                newData[i + 2] = originalData[i + 2] * multiplier;
+                newData[i + 3] = originalData[i + 3];
+            }
+            
+            adjustedImageData = new ImageData(newData, trueOriginalImageData.width, trueOriginalImageData.height);
+            
+            originalCtx.putImageData(adjustedImageData, 0, 0);
+            drawSkinToneImage(adjustedImageData);
+            drawLuminanceWaveform(adjustedImageData, null);
+            drawWaveformGrid();
+            drawVectorscope(adjustedImageData, null);
+            drawVectorscopeGrid();
+        }
+
+        function drawSkinToneImage(sourceImageData) {
+            const { width, height, data } = sourceImageData;
+            const skinToneData = new ImageData(width, height);
+            const sData = skinToneData.data;
+
+            const lumaCenter = parseFloat(lumaCenterSlider.value);
+            const lumaWidth = parseFloat(lumaWidthSlider.value);
+            const hueCenter = parseFloat(hueCenterSlider.value);
+            const hueWidth = parseFloat(hueWidthSlider.value);
+            
+            const lumaMin = lumaCenter - lumaWidth / 2;
+            const lumaMax = lumaCenter + lumaWidth / 2;
+            const hueMin = hueCenter - hueWidth / 2;
+            const hueMax = hueCenter + hueWidth / 2;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                
+                const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 2.55;
+                const hsl = rgbToHsl(r, g, b);
+                const hue = hsl[0] * 360;
+
+                const isSkin = (luma >= lumaMin && luma <= lumaMax && hue >= hueMin && hue <= hueMax);
+
+                if (isSkin) {
+                    sData[i] = r;
+                    sData[i + 1] = g;
+                    sData[i + 2] = b;
+                } else {
+                    const gray = 80;
+                    sData[i] = gray;
+                    sData[i+1] = gray;
+                    sData[i+2] = gray;
+                }
+                sData[i + 3] = 255;
+            }
+            
+            skinToneCtx.putImageData(skinToneData, 0, 0);
+        }
+
+        function drawLuminanceWaveform(sourceImageData, indicatorX) {
+            const { width, height, data } = sourceImageData;
+            const padding = 50;
+            luminanceCtx.clearRect(0,0,width,height);
+            luminanceCtx.fillStyle = 'black';
+            luminanceCtx.fillRect(0, 0, width, height);
+            
+            const waveformData = Array(width).fill(0).map(() => Array(256).fill(0));
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const i = (y * width + x) * 4;
+                    const luma = Math.round(0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2]);
+                    if (luma >= 0 && luma <= 255) {
+                        waveformData[x][luma]++;
+                    }
+                }
+            }
+            
+            const drawableWidth = width - (2 * padding);
+            for (let imageX = 0; imageX < width; imageX++) {
+                const canvasX = padding + Math.round((imageX / (width - 1)) * (drawableWidth - 1));
+                for (let luma = 0; luma < 256; luma++) {
+                    if (waveformData[imageX][luma] > 0) {
+                        const density = Math.min(1, waveformData[imageX][luma] / 4); // Boosted density
+                        luminanceCtx.fillStyle = `rgba(100, 255, 100, ${density})`; // Brighter green and full alpha
+                        
+                        const luma_ire = (luma / 255) * 100;
+                        const canvasY = height - ((luma_ire + 10) / 120) * height;
+
+                        luminanceCtx.fillRect(canvasX, canvasY, 1, 1);
+                    }
+                }
+            }
+            
+            if (indicatorX !== null) {
+                const indicatorCanvasX = padding + Math.round((indicatorX / (width - 1)) * (drawableWidth - 1));
+                luminanceCtx.fillStyle = '#D63129';
+                luminanceCtx.fillRect(indicatorCanvasX - 1, 0, 2, height);
+            }
+        }
+        
+        function drawWaveformGrid() {
+            const { width, height } = waveformGridCanvas;
+            const padding = 50;
+            gridCtx.clearRect(0,0,width,height);
+
+            gridCtx.font = '12px Inter';
+            
+            const skinRefY = height - ((70 + 10) / 120) * height;
+            gridCtx.beginPath();
+            gridCtx.moveTo(padding, skinRefY);
+            gridCtx.lineTo(width - padding, skinRefY);
+            gridCtx.strokeStyle = 'rgba(255, 200, 0, 0.5)';
+            gridCtx.setLineDash([4, 4]);
+            gridCtx.stroke();
+            gridCtx.fillStyle = 'rgba(255, 200, 0, 0.7)';
+            gridCtx.textAlign = 'right';
+            gridCtx.fillText("Skin Ref", padding - 10, skinRefY + 4);
+
+
+            for (let i = -1; i <= 11; i++) {
+                const ire = i * 10;
+                const y = height - ((ire + 10) / 120) * height;
+                
+                gridCtx.beginPath();
+                gridCtx.moveTo(padding, y);
+                gridCtx.lineTo(width - padding, y);
+                
+                if (ire === 0 || ire === 100) {
+                    gridCtx.setLineDash([]);
+                    gridCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                } else if (ire === -10 || ire === 110) {
+                    gridCtx.setLineDash([2, 3]);
+                    gridCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                } else {
+                    gridCtx.setLineDash([]);
+                    gridCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                }
+                gridCtx.stroke();
+                
+                if (ire >= 0 && ire <= 100 && i % 2 === 0) {
+                    const bit8 = Math.round((ire/100) * 255);
+                    gridCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                    gridCtx.textAlign = 'right';
+                    gridCtx.fillText(ire, padding - 8, y + 4);
+                    gridCtx.textAlign = 'left';
+                    gridCtx.fillText(bit8, width - padding + 8, y + 4);
+                }
+            }
+            gridCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            gridCtx.textAlign = 'left';
+            gridCtx.fillText("IRE", 5, 15);
+            gridCtx.textAlign = 'right';
+            gridCtx.fillText("8-bit", width-5, 15);
+        }
+
+        // --- VECTORSCOPE LOGIC (CORRECTED) ---
+
+        function drawVectorscope(sourceImageData, indicatorPixel) {
+            const { width, height, data } = sourceImageData;
+            vectorscopeCtx.clearRect(0, 0, width, height);
+            vectorscopeCtx.fillStyle = 'black';
+            vectorscopeCtx.fillRect(0, 0, width, height);
+
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const maxRadius = Math.min(centerX, centerY) * 0.9;
+            const scale = maxRadius / 0.62; // Scale based on V component's theoretical max
+
+            const lumaCenter = parseFloat(lumaCenterSlider.value);
+            const lumaWidth = parseFloat(lumaWidthSlider.value);
+            const hueCenter = parseFloat(hueCenterSlider.value);
+            const hueWidth = parseFloat(hueWidthSlider.value);
+            
+            const lumaMin = lumaCenter - lumaWidth / 2;
+            const lumaMax = lumaCenter + lumaWidth / 2;
+            const hueMin = hueCenter - hueWidth / 2;
+            const hueMax = hueCenter + hueWidth / 2;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                
+                const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 2.55;
+                const hsl = rgbToHsl(r, g, b);
+                const hue = hsl[0] * 360;
+
+                const isSkin = (luma >= lumaMin && luma <= lumaMax && hue >= hueMin && hue <= hueMax);
+
+                if (isSkin) {
+                    const yuv = rgbToYuv(r / 255, g / 255, b / 255);
+                    
+                    // Plot U on X axis, V on Y axis
+                    const x = centerX + yuv.u * scale;
+                    const y = centerY - yuv.v * scale; // Invert V for canvas coordinates
+
+                    // Use a low opacity to show density
+                    vectorscopeCtx.fillStyle = 'rgba(0, 255, 0, 0.05)';
+                    vectorscopeCtx.fillRect(x, y, 1, 1);
+                }
+            }
+
+            if (indicatorPixel) {
+                const {r, g, b} = indicatorPixel;
+                const yuv = rgbToYuv(r / 255, g / 255, b / 255);
+                
+                const x = centerX + yuv.u * scale;
+                const y = centerY - yuv.v * scale;
+                
+                vectorscopeCtx.fillStyle = '#D63129';
+                vectorscopeCtx.beginPath();
+                vectorscopeCtx.arc(x, y, 5, 0, 2 * Math.PI);
+                vectorscopeCtx.fill();
+            }
+        }
+
+        function drawVectorscopeGrid() {
+            const { width, height } = vectorscopeGridCanvas;
+            vGridCtx.clearRect(0, 0, width, height);
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const maxRadius = Math.min(centerX, centerY) * 0.9;
+            const scale = maxRadius / 0.62;
+
+            vGridCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            vGridCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            vGridCtx.font = '12px Inter';
+            vGridCtx.textAlign = 'center';
+            vGridCtx.textBaseline = 'middle';
+
+            // Draw circles
+            [0.25, 0.5, 0.75, 1].forEach(r => {
+                vGridCtx.beginPath();
+                vGridCtx.arc(centerX, centerY, maxRadius * r, 0, 2 * Math.PI);
+                vGridCtx.stroke();
+            });
+
+            // Draw main axes (U and V axes)
+            vGridCtx.beginPath();
+            vGridCtx.moveTo(centerX, centerY - maxRadius);
+            vGridCtx.lineTo(centerX, centerY + maxRadius);
+            vGridCtx.moveTo(centerX - maxRadius, centerY);
+            vGridCtx.lineTo(centerX + maxRadius, centerY);
+            vGridCtx.stroke();
+            
+            // --- DYNAMIC SKIN TONE LINE ---
+            // This line is now calculated based on a sample skin tone (RGB: 198, 155, 133)
+            // to align with the actual plotted skin tones from the reference image.
+            const refSkinR = 198 / 255;
+            const refSkinG = 155 / 255;
+            const refSkinB = 133 / 255;
+            const refSkinYuv = rgbToYuv(refSkinR, refSkinG, refSkinB);
+            const angleRad = Math.atan2(refSkinYuv.v, refSkinYuv.u);
+
+            const endX = centerX + maxRadius * Math.cos(angleRad);
+            const endY = centerY - maxRadius * Math.sin(angleRad); // Y is inverted in canvas
+
+            vGridCtx.beginPath();
+            vGridCtx.strokeStyle = 'rgba(255, 200, 0, 0.7)';
+            vGridCtx.lineWidth = 1.5;
+            vGridCtx.moveTo(centerX, centerY);
+            vGridCtx.lineTo(endX, endY);
+            vGridCtx.stroke();
+
+
+            // Draw Color Targets by converting their RGB values to YUV
+            const targets = {
+                // Using 75% amplitude color bar values for targets
+                'R':  [191, 0, 0],    'Mg': [191, 0, 191],
+                'B':  [0, 0, 191],    'Cy': [0, 191, 191],
+                'G':  [0, 191, 0],    'Yl': [191, 191, 0]
+            };
+
+            for (const key in targets) {
+                const [r, g, b] = targets[key];
+                const yuv = rgbToYuv(r / 255, g / 255, b / 255);
+                
+                const x = centerX + yuv.u * scale;
+                const y = centerY - yuv.v * scale;
+                
+                vGridCtx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+                vGridCtx.strokeRect(x - 4, y - 4, 8, 8);
+                vGridCtx.fillText(key, x, y - 15);
+            }
+        }
+
+        // --- Helper Functions ---
+
+        /**
+         * Converts an RGB color value to YUV.
+         * @param {number} r The red color value, in [0, 1].
+         * @param {number} g The green color value, in [0, 1].
+         * @param {number} b The blue color value, in [0, 1].
+         * @returns {{y: number, u: number, v: number}} The YUV color.
+         */
+        function rgbToYuv(r, g, b) {
+            const y =  0.299 * r + 0.587 * g + 0.114 * b;
+            const u = -0.147 * r - 0.289 * g + 0.436 * b;
+            const v =  0.615 * r - 0.515 * g - 0.100 * b;
+            return { y, u, v };
+        }
+
+        function rgbToHsl(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            let h, s, l = (max + min) / 2;
+            if (max === min) {
+                h = s = 0;
+            } else {
+                const d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / d + 2; break;
+                    case b: h = (r - g) / d + 4; break;
+                }
+                h /= 6;
+            }
+            return [h, s, l];
+        }
+
+        // --- Start the app ---
+        initialize();
+    </script>
+</body>
+</html>
